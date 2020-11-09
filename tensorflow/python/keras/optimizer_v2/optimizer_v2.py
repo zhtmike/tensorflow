@@ -591,6 +591,32 @@ class OptimizerV2(trackable.Trackable):
       self._weights.append(weight)
     return weight
 
+  def add_zero_slot(self, var, slot_name, initializer="zeros"):
+    """Add a new slot variable for `var`."""
+    if slot_name not in self._slot_names:
+      self._slot_names.append(slot_name)
+    var_key = _var_key(var)
+    slot_dict = self._slots.setdefault(var_key, {})
+    weight = slot_dict.get(slot_name, None)
+    if weight is None:
+      if isinstance(initializer, six.string_types) or callable(initializer):
+        initializer = initializers.get(initializer)
+        initial_value = functools.partial(
+            initializer, shape=var.shape, dtype=var.dtype)
+      else:
+        initial_value = initializer
+      strategy = distribute_ctx.get_strategy()
+      with strategy.extended.colocate_vars_with(var):
+        weight = tf_variables.Variable(
+            name="%s/%s" % (var._shared_name, slot_name),  # pylint: disable=protected-access
+            dtype=var.dtype,
+            trainable=False,
+            initial_value=initial_value)
+      backend.track_variable(weight)
+      slot_dict[slot_name] = weight
+      self._weights.append(weight)
+    return weight
+
   def get_slot(self, var, slot_name):
     var_key = _var_key(var)
     slot_dict = self._slots[var_key]
